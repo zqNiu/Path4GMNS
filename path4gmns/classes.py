@@ -12,7 +12,7 @@ __all__ = ['UI']
 
 class Node:
 
-    def __init__(self, node_seq_no, external_node_id, zone_id, x='', y=''):
+    def __init__(self, node_seq_no, external_node_id, zone_id,production,attraction,x='', y=''):
         """ the attributes of node  """
         # external_node_id: user defined node id from input
         self.node_seq_no = node_seq_no
@@ -20,7 +20,10 @@ class Node:
         self.external_node_id = external_node_id
         self.outgoing_link_list = []
         self.incoming_link_list = []
+        self.to_node_2_link_seq_no_map=dict()
         self.zone_id = zone_id
+        self.production=production
+        self.attraction=attraction
         self.coord_x = x
         self.coord_y = y
 
@@ -48,6 +51,15 @@ class Node:
     def add_incoming_link(self, link):
         self.incoming_link_list.append(link)
 
+class Zone:
+    def __init__(self,zone_id):
+        self.id=zone_id
+        self.obs_production=0
+        self.obs_attraction=0
+        self.est_production=0
+        self.est_attraction=0
+        self.est_attraction_dev=0
+        self.est_production_dev=0
 
 class Link:
 
@@ -105,6 +117,10 @@ class Link:
         # self.travel_marginal_cost_by_period = [
         #     [0] * demand_period_size for i in range(agent_type_size)
         # ]
+
+        #for odme
+        self.obs_count=0
+        self.est_count_dev=0
 
     def get_link_id(self):
         return self.id
@@ -256,6 +272,7 @@ class Network:
         self.agent_td_list_dict = {}
         # key: zone id, value: node id list
         self.zone_to_nodes_dict = {}
+        self.zone_id_to_zone_dict={} 
         self.node_label_cost = None
         self.node_predecessor = None
         self.link_predecessor = None
@@ -265,7 +282,6 @@ class Network:
         # the following two are IDs rather than objects
         self._agent_type_size = 1
         self._demand_period_size = 1
-        self.agent_type_name = 'all'
 
     def update(self, agent_type_size, demand_period_size):
         self.node_size = len(self.node_list)
@@ -336,9 +352,8 @@ class Network:
             last_link_from[i] = j
 
         # setup allowed uses
-        # allowed_uses = [''] * link_size
-        # self._setup_allowed_use(allowed_uses)
-        allowed_uses = [link.allowed_uses for link in self.link_list]
+        allowed_uses = [''] * link_size
+        self._setup_allowed_use(allowed_uses)
 
         # set up arrays using ctypes
         int_arr_node = ctypes.c_int * node_size
@@ -473,7 +488,7 @@ class Network:
         path_cost = agent.get_path_cost()
         if path_cost >= MAX_LABEL_COST:
             return f'distance: infinitity | path: '
-
+        
         path = ''
         if agent.link_path:
             path = ';'.join(
@@ -562,9 +577,10 @@ class Network:
     def get_link(self, seq_no):
         return self.link_list[seq_no]
 
-    def get_agent_type_name(self):
+    def get_agent_type_str(self):
         """ for allowed uses in single_source_shortest_path()"""
-        return self.agent_type_name
+        # convert it to C char
+        return 'a'.encode()
 
     def get_link_seq_no(self, id):
         return self.link_id_dict[id]
@@ -575,9 +591,6 @@ class Network:
     def get_last_thru_node(self):
         """ node no of the first potential centroid """
         return self.get_node_size()
-
-    def set_agent_type_name(self, at_name):
-        self.agent_type_name = at_name
 
 
 class Column:
@@ -592,6 +605,7 @@ class Column:
         self.gradient_cost = 0
         self.gradient_cost_abs_diff = 0
         self.gradient_cost_rel_diff = 0
+        self.path_gradient_cost=0
         self.nodes = None
         self.links = None
         self.geo = ''
@@ -709,13 +723,10 @@ class AgentType:
     def get_id(self):
         return self.id
 
-    def get_name(self):
-        return self.name
-
     def get_vot(self):
         return self.vot
 
-    def get_type_str(self):
+    def get_type(self):
         return self.type
 
     def get_pce(self):
@@ -747,7 +758,7 @@ class Demand:
     def __init__(self, id=0, period='AM', agent_type='p', file='demand.csv'):
         self.id = id
         self.period = period
-        self.agent_type_str = agent_type
+        self.agent_type = agent_type
         self.file = file
 
     def get_id(self):
@@ -759,8 +770,8 @@ class Demand:
     def get_period(self):
         return self.period
 
-    def get_agent_type_str(self):
-        return self.agent_type_str
+    def get_agent_type(self):
+        return self.agent_type
 
 
 class VDFPeriod:
@@ -862,9 +873,9 @@ class SPNetwork(Network):
     def get_agent_type(self):
         return self.agent_type
 
-    def get_agent_type_name(self):
+    def get_agent_type_str(self):
         # convert it to C char
-        return self.agent_type.get_name()
+        return self.agent_type.get_type().encode()
 
     def get_demand_period(self):
         return self.demand_period
@@ -944,7 +955,7 @@ class AccessNetwork(Network):
         self.node_size = base.get_node_size()
         self.link_size = base.get_link_size()
         self.centroids = []
-        self.agent_type_name = 'all'
+        self.agent_type_str = 'a'
         self.pre_source_node_id = -1
         if add_cc:
             self._add_centroids_connectors()
@@ -1027,17 +1038,17 @@ class AccessNetwork(Network):
 
         Parameters
         ----------
-        mode : please choose one of the following three, 'p', 'w', and 'b',
+        mode : please choose one of the following three, 'p', 'w', and 'b', 
         which are in settings.yml.
         """
-        # assert(mode in ['p', 'w', 'b', 'a'])
-        self.agent_type_name = mode
+        assert(mode in ['p', 'w', 'b', 'a'])
+        self.agent_type_str = mode
 
     def set_source_node_id(self, node_id):
         self.pre_source_node_id = node_id
 
-    def get_agent_type_name(self):
-        return self.agent_type_name
+    def get_agent_type_str(self):
+        return self.agent_type_str.encode()
 
     def get_centroids(self):
         return self.centroids
@@ -1101,7 +1112,7 @@ class AccessNetwork(Network):
         vot = at.get_vot()
         ffs = at.get_free_flow_speed()
 
-        if at.get_type_str().startswith('p'):
+        if at.get_type().startswith('p'):
             for link in self.get_links():
                 self.link_cost_array[link.get_seq_no()] = (
                     link.get_free_flow_travel_time()
@@ -1129,40 +1140,26 @@ class Assignment:
         self.spnetworks = []
         self.accessnetwork = None
         self.memory_blocks = 4
-        self.map_atstr_id = {}
-        self.map_dpstr_id = {}
-        self.map_name_atstr = {}
+        self.map_at_id = {}
+        self.map_dp_id = {}
 
     def update_agent_types(self, at):
-        if at.get_type_str() not in self.map_atstr_id:
-            self.map_atstr_id[at.get_type_str()] = at.get_id()
-        else:
-            raise Exception('agent type is not unique:'+at.get_type_str())
-
-        if at.get_name() not in self.map_name_atstr:
-            self.map_name_atstr[at.get_name()] = at.get_type_str()
-        else:
-            raise Exception('agent type name is not unique:'+at.get_name())
-
         self.agent_types.append(at)
+        self.map_at_id[at.get_type()] = at.get_id()
 
     def update_demand_periods(self, dp):
-        if dp.get_period() not in self.map_dpstr_id:
-            self.map_dpstr_id[dp.get_period()] = dp.get_id()
-        else:
-            raise Exception('demand period is not unique:'+dp.get_period())
-
         self.demand_periods.append(dp)
+        self.map_dp_id[dp.get_period()] = dp.get_id()
 
     def get_agent_type_id(self, at_str):
         try:
-            return self.map_atstr_id[at_str]
+            return self.map_at_id[at_str]
         except KeyError:
             raise Exception('NO agent type: '+at_str)
 
     def get_demand_period_id(self, dp_str):
         try:
-            return self.map_dpstr_id[dp_str]
+            return self.map_dp_id[dp_str]
         except KeyError:
             raise Exception('NO demand period: '+dp_str)
 
@@ -1174,7 +1171,7 @@ class Assignment:
 
     def get_agent_type_str(self, at_id):
         try:
-            return self.agent_types[at_id].get_type_str()
+            return self.agent_types[at_id].get_type()
         except KeyError:
             raise Exception('NO agent type id: '+at_id)
 
@@ -1230,14 +1227,14 @@ class Assignment:
     def get_agent_orig_node_id(self, agent_id):
         """ return the origin node id of an agent
 
-        exception will be handled by _get_agent() in class Network
+        exception will be handled by  _get_agent() in class Network
         """
         return self.network.get_agent_orig_node_id(agent_id)
 
     def get_agent_dest_node_id(self, agent_id):
         """ return the destnation node id of an agent
 
-        exception will be handled by _get_agent() in class Network
+        exception will be handled by  _get_agent() in class Network
         """
         return self.network.get_agent_dest_node_id(agent_id)
 
@@ -1255,39 +1252,15 @@ class Assignment:
         """
         return self.network.get_agent_link_path(agent_id, path_only)
 
-    def _convert_mode(self, mode):
-        """convert mode to the corresponding agent type name and string"""
-        if mode in self.map_atstr_id:
-            at = self.get_agent_type(mode)
-            return at.get_name(), mode
-
-        if mode in self.map_name_atstr:
-            return mode, self.map_name_atstr[mode]
-
-        # for distance-based shortest path calculation only
-        # it shall not be used with any accessibility evaluations
-        if mode == 'all':
-            return mode, mode
-
-        raise Exception('Please provide a valid mode!')
-
-    def find_path_for_agents(self, mode):
+    def find_path_for_agents(self):
         """ find and set up shortest path for each agent """
-        # reset agent type str or mode according to user's input
-        at_name, _ = self._convert_mode(mode)
-        self.network.set_agent_type_name(at_name)
-
         find_path_for_agents(self.network, self.column_pool)
 
-    def find_shortest_path(self, from_node_id, to_node_id, mode, seq_type='node'):
+    def find_shortest_path(self, from_node_id, to_node_id, seq_type='node'):
         """ call find_shortest_path() from path.py
 
         exceptions will be handled in find_shortest_path()
         """
-        # reset agent type str or mode according to user's input
-        at_name, _ = self._convert_mode(mode)
-        self.network.set_agent_type_name(at_name)
-
         return find_shortest_path(self.network, from_node_id,
                                   to_node_id, seq_type)
 
@@ -1313,8 +1286,9 @@ class Assignment:
                 continue
 
             for d in self.demands:
-                at = self.get_agent_type(d.get_agent_type_str())
+                at = self.get_agent_type(d.get_agent_type())
                 dp = self.get_demand_period(d.get_period())
+              
                 if z - 1 < self.memory_blocks:
                     sp = SPNetwork(self.network, at, dp)
                     spvec[(at.get_id(), dp.get_id(), z-1)] = sp
@@ -1371,10 +1345,9 @@ class Assignment:
             self.accessnetwork.set_source_node_id(source_node_id)
             run_sp = True
 
-        at_name, at_str = self._convert_mode(mode)
-        if self.accessnetwork.agent_type_name != at_name:
-            self.accessnetwork.set_target_mode(at_name)
-            at = self.get_agent_type(at_str)
+        if self.accessnetwork.agent_type_str != mode:
+            self.accessnetwork.set_target_mode(mode)
+            at = self.get_agent_type(mode)
             self.accessnetwork.update_generalized_link_cost(at)
             run_sp = True
 
@@ -1435,11 +1408,11 @@ class UI:
         """ return the sequence of link IDs along the agent path """
         return self._base_assignment.get_agent_link_path(agent_id)
 
-    def find_path_for_agents(self, mode='all'):
+    def find_path_for_agents(self):
         """ find and set up shortest path for each agent """
-        return self._base_assignment.find_path_for_agents(mode)
+        return self._base_assignment.find_path_for_agents()
 
-    def find_shortest_path(self, from_node_id, to_node_id, mode='all', seq_type='node'):
+    def find_shortest_path(self, from_node_id, to_node_id, seq_type='node'):
         """ return shortest path between from_node_id and to_node_id
 
         Parameters
@@ -1460,11 +1433,10 @@ class UI:
         return self._base_assignment.find_shortest_path(
             from_node_id,
             to_node_id,
-            mode,
             seq_type
         )
 
-    def get_accessible_nodes(self, source_node_id, time_budget, mode='p'):
+    def get_accessible_nodes(self, source_node_id, time_budget, mode='a'):
         """ get the accessible nodes from a node given mode and time budget
 
         Parameters
@@ -1487,6 +1459,7 @@ class UI:
 
         print(f'number of accessible nodes is {len(nodes)}')
         print(f'accessible nodes are: {node_strs}')
+
 
     def get_accessible_links(self, source_node_id, time_budget, mode='p'):
         """ get the accessible links from a node given mode and time budget

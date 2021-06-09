@@ -2,7 +2,7 @@ import os
 import csv
 import threading
 
-from .classes import Node, Link, Network, Column, ColumnVec, VDFPeriod, \
+from .classes import Node, Link, Zone, Network, Column, ColumnVec, VDFPeriod, \
                      AgentType, DemandPeriod, Demand, Assignment, UI
 
 from .colgen import update_links_using_columns
@@ -14,7 +14,9 @@ __all__ = [
     'output_columns',
     'output_link_performance',
     'download_sample_data_sets',
-    'output_agent_paths'
+    'output_agent_paths',
+    'output_odme_performance'
+
 ]
 
 
@@ -30,7 +32,7 @@ def _initialize_zone_degrees(zone_size):
     assert(zone_size > 0)
 
     global _zone_degrees
-    _zone_degrees = [0] * zone_size
+    _zone_degrees = [0] * (zone_size+1)   #as zone_id start from 1
 
 
 def _update_orig_zone(oz_id):
@@ -174,7 +176,8 @@ def read_nodes(input_dir,
                nodes,
                id_to_no_dict,
                no_to_id_dict,
-               zone_to_node_dict):
+               zone_to_node_dict,
+               zone_id_to_zone_dict):
 
     """ step 1: read input_node """
     with open(input_dir+'/node.csv', 'r', encoding='utf-8') as fp:
@@ -209,12 +212,16 @@ def read_nodes(input_dir,
             if zone_id not in zone_to_node_dict.keys():
                 zone_to_node_dict[zone_id] = []
             zone_to_node_dict[zone_id].append(node_id)
+            
+            if zone_id not in zone_id_to_zone_dict.keys():
+                zone_id_to_zone_dict[zone_id]=Zone(zone_id)
 
             node_seq_no += 1
 
         print(f"the number of nodes is {node_seq_no}")
 
         zone_size = len(zone_to_node_dict)
+        assert(zone_size==len(zone_id_to_zone_dict))
         # do not count virtual zone with id as -1
         if -1 in zone_to_node_dict.keys():
             zone_size -= 1
@@ -410,6 +417,7 @@ def read_links(input_dir,
             to_node = nodes[to_node_no]
             from_node.add_outgoing_link(link)
             to_node.add_incoming_link(link)
+            from_node.to_node_2_link_seq_no_map[to_node.node_seq_no]=link.link_seq_no
             links.append(link)
 
             # set up zone degrees
@@ -481,6 +489,31 @@ def read_demand(input_dir,
 
         if total_agents == 0:
             raise Exception('NO VALID OD VOLUME!! DOUBLE CHECK YOUR demand.csv')
+
+def read_measurement(input_dir,nodes,links,zones,id_to_no_dict,zone_to_node_dict,zone_id_to_zone_dict):
+    """ for odme """
+
+    """ step :read input_agent """
+    with open(input_dir+'/measurement.csv', 'r', encoding='utf-8') as fp:
+        print('read measurement.csv')
+        reader = csv.DictReader(fp)
+        for line in reader:
+            if line["measurement_type"]=="link":
+                from_node_id=_convert_str_to_int(line["from_node_id"])
+                to_node_id=_convert_str_to_int(line["to_node_id"])
+                from_node=id_to_no_dict[from_node_id]
+                to_node=id_to_no_dict[to_node_id]
+                link_seq=nodes[from_node].to_node_2_link_seq_no_map[to_node]
+                links[link_seq].obs_count=float(line["count"])
+            elif line["measurement_type"]=="production":
+                zone_no=_convert_str_to_int(line['o_zone_id'])
+                zone_id_to_zone_dict[zone_no].obs_production=float(line["count"])
+            elif line["measurement_type"]=="attraction":
+                zone_no=_convert_str_to_int(line['d_zone_id'])
+                zone_id_to_zone_dict[zone_no].obs_attraction=float(line["count"])
+            else:
+                print("link type error")
+
 
 
 def _auto_setup(assignment):
@@ -571,7 +604,8 @@ def read_network(load_demand='true', input_dir='.'):
                network.node_list,
                network.internal_node_seq_no_dict,
                network.external_node_id_dict,
-               network.zone_to_nodes_dict)
+               network.zone_to_nodes_dict,
+               network.zone_id_to_zone_dict)
 
     read_links(input_dir,
                network.link_list,
@@ -582,10 +616,18 @@ def read_network(load_demand='true', input_dir='.'):
                assignm.get_agent_type_count(),
                assignm.get_demand_period_count(),
                load_demand)
+    read_measurement(input_dir,
+                     network.node_list,
+                     network.link_list,
+                     network.get_zones(),
+                     network.internal_node_seq_no_dict,
+                     network.zone_to_nodes_dict,
+                     network.zone_id_to_zone_dict
+               )
 
     if load_demand:
         for d in assignm.get_demands():
-            at = assignm.get_agent_type_id(d.get_agent_type_str())
+            at = assignm.get_agent_type_id(d.get_agent_type())
             dp = assignm.get_demand_period_id(d.get_period())
             read_demand(input_dir,
                         d.get_file_name(),
@@ -869,6 +911,51 @@ def output_link_performance(ui, output_dir='.'):
                   +os.path.join(os.getcwd(), output_dir)
                   +' for link performance')
 
+def output_odme_performance(ui, output_dir='.'):
+    with open(output_dir+'/odme_performance.csv', 'w',  newline='') as fp:
+        base = ui._base_assignment
+        network=base.get_network()
+        nodes=base.get_nodes()
+        links = base.get_links()
+        zones = base.get_zones()
+        writer = csv.writer(fp)
+
+        line = ['measurement_type',
+                'o_zone_id',
+                'd_zone_id',
+                'from_node_id',
+                'to_node_id',
+                'obs_count',
+                'est_count']
+
+        writer.writerow(line)
+
+        for link in links:
+            if link.obs_count>0:  #with data
+                measurement_type="link"
+                from_node_id=link.external_from_node
+                to_node_id=link.external_to_node
+                obs_count=link.obs_count
+                est_count=link.flow_vol_by_period[0]
+                line=[measurement_type,"","",from_node_id,to_node_id,obs_count,est_count]
+                writer.writerow(line)
+        for zone in zones:
+            if network.zone_id_to_zone_dict[zone].obs_production >0:
+                measurement_type="production"
+                o_zone_id=zone
+                obs_count=network.zone_id_to_zone_dict[zone].obs_production
+                est_count=network.zone_id_to_zone_dict[zone].est_production
+                line=[measurement_type,o_zone_id,"","","",obs_count,est_count]
+                writer.writerow(line)
+            if network.zone_id_to_zone_dict[zone].obs_attraction >0:
+                measurement_type="attraction"
+                d_zone_id=zone
+                obs_count=network.zone_id_to_zone_dict[zone].obs_attraction
+                est_count=network.zone_id_to_zone_dict[zone].est_attraction
+                line=[measurement_type,"",d_zone_id,"","",obs_count,est_count]
+                writer.writerow(line)
+
+    
 
 def output_agent_paths(ui, output_geometry=True, output_dir='.'):
     with open(output_dir+'/agent_paths.csv', 'w',  newline='') as f:

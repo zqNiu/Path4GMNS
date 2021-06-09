@@ -4,8 +4,8 @@ from .dtaapi import *
 from .utils import *
 
 
-__version__ = '0.7.2'
+__version__ = '0.7.1'
 
 
 # print out the current version
-print(f'path4gmns, version {__version__}')
+print('path4gmns, version '+__version__)

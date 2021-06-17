@@ -1,0 +1,3 @@
+agent_id,o_zone_id,d_zone_id,path_id,o_node_id,d_node_id,agent_type,demand_period,volume,toll,travel_time,distance,node_sequence,link_sequence,time_sequence,time_decimal_sequence,link_travel_time_sequence,
+1,1,2,0,1,2,p,AM,5232.51,0.0,63.8961,44.3961,1;3;2;,1;2;,0730:00;0758:47;0833:53;,450.00;478.78;513.90;,28.78;35.11;
+2,1,2,1,1,2,p,AM,2434.15,0.0,57.9326,54.3961,1;4;2;,3;4;,0833:53;0905:50;0931:49;,513.90;545.85;571.83;,31.95;25.98;

@@ -1,0 +1,5 @@
+measurement_type,o_zone_id,d_zone_id,from_node_id,to_node_id,obs_count,est_count
+link,,,1,3,5067.0,5851.371005177529
+link,,,1,4,2933.0,1588.0162701557203
+production,1,,,,8000.0,7439.387275333249
+attraction,,2,,,8000.0,7439.387275333249

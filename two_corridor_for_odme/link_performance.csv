@@ -1,0 +1,5 @@
+road_link_id,from_node_id,to_node_id,time_period,volume,travel_time,speed,VOC,volume_at_p,resource_balance,notes
+1003,1,3,0700_0800,5444.444,30.297,39.608,1.361,,,period-based
+3002,3,2,0700_0800,5444.444,0.000,0.000,1.361,,,period-based
+1004,1,4,0700_0800,1555.556,30.325,59.356,0.519,,,period-based
+4002,4,2,0700_0800,1555.556,0.000,0.000,0.519,,,period-based

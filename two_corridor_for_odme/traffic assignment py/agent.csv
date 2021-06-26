@@ -1,0 +1,3 @@
+agent_id,o_zone_id,d_zone_id,path_id,agent_type,demand_period,volume,toll,travel_time,distance,node_sequence,link_sequence,geometry
+1,1,2,0,p,AM,5448.275953729199,0,30.325656533914767,20.0,1;3;2,1003;3002,"LINESTRING ( ,  ,  )"
+2,1,2,1,p,AM,1551.7240462708012,0,30.32209609217911,30.0,1;4;2,1004;4002,"LINESTRING ( ,  ,  )"
